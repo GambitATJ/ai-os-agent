@@ -61,10 +61,9 @@ class ScanPasswordFields(BaseModel):
 def validate_ctr(ctr: CTR) -> None:
     """Validate CTR and convert to Pydantic model for type checking."""
     
-    # Convert CTR dataclass to dict for Pydantic validation
     ctr_dict = {
         "task_type": ctr.task_type,
-        **ctr.params  # This unpacks source_dir into top-level
+        **ctr.params
     }
     
     if ctr.task_type == "ORGANIZE_DOWNLOADS":
