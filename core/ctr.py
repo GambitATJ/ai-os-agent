@@ -9,6 +9,8 @@ TaskType = Literal[
     "CREATE_PROJECT_SCAFFOLD", 
     "BULK_RENAME",
     "SEARCH_DOCUMENTS",
+    "GENERATE_PASSWORD",      # ← ADD THIS
+    "SCAN_PASSWORD_FIELDS",
 ]
 
 
@@ -41,6 +43,20 @@ class BulkRename(BaseModel):
 class SearchDocuments(BaseModel):
     task_type: Literal["SEARCH_DOCUMENTS"] = "SEARCH_DOCUMENTS"
     scope: str
+class GeneratePassword(BaseModel):
+    task_type: Literal["GENERATE_PASSWORD"] = "GENERATE_PASSWORD"
+    label: str
+    length: int = Field(16, ge=8, le=128)
+    uppercase: bool = True
+    lowercase: bool = True
+    digits: bool = True
+    symbols: bool = True
+
+
+class ScanPasswordFields(BaseModel):
+    task_type: Literal["SCAN_PASSWORD_FIELDS"] = "SCAN_PASSWORD_FIELDS"
+    scope: str
+
 
 def validate_ctr(ctr: CTR) -> None:
     """Validate CTR and convert to Pydantic model for type checking."""
@@ -59,5 +75,9 @@ def validate_ctr(ctr: CTR) -> None:
         BulkRename.model_validate(ctr_dict)
     elif ctr.task_type == "SEARCH_DOCUMENTS":
         SearchDocuments.model_validate(ctr_dict)
+    elif ctr.task_type == "GENERATE_PASSWORD":
+        GeneratePassword.model_validate(ctr_dict)
+    elif ctr.task_type == "SCAN_PASSWORD_FIELDS":
+        ScanPasswordFields.model_validate(ctr_dict)
     else:
         raise ValueError(f"Unknown task_type: {ctr.task_type}")
