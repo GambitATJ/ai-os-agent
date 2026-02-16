@@ -1,2 +1,4 @@
 typer
 pydantic
+cryptography
+pyperclip
