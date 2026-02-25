@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Literal, Dict, Any
+from typing import Literal, Dict, Any, Optional, Literal
 from pydantic import BaseModel, Field
 
 
@@ -11,6 +11,7 @@ TaskType = Literal[
     "SEARCH_DOCUMENTS",
     "GENERATE_PASSWORD",      # ← ADD THIS
     "SCAN_PASSWORD_FIELDS",
+    "FIND_RECEIPTS"
 ]
 
 
@@ -39,6 +40,17 @@ class BulkRename(BaseModel):
     folder: str
     pattern: str = "date_slug"
 
+class FindReceipts(BaseModel):
+    task_type: Literal["FIND_RECEIPTS"] = "FIND_RECEIPTS"
+    source_dir: str
+    query: str = "receipt"
+    export_dir: Optional[str] = None
+
+class GenerateTemplate(BaseModel):
+    task_type: Literal["GENERATE_TEMPLATE"] = "GENERATE_TEMPLATE"
+    template: str
+    output: str
+
 
 class SearchDocuments(BaseModel):
     task_type: Literal["SEARCH_DOCUMENTS"] = "SEARCH_DOCUMENTS"
@@ -56,6 +68,11 @@ class GeneratePassword(BaseModel):
 class ScanPasswordFields(BaseModel):
     task_type: Literal["SCAN_PASSWORD_FIELDS"] = "SCAN_PASSWORD_FIELDS"
     scope: str
+    
+# class BulkRename(BaseModel):
+#     task_type: Literal["BULK_RENAME"] = "BULK_RENAME"
+#     source_dir: str
+#     pattern: str = Field(..., pattern=r"^[a-zA-Z0-9_-]+$")
 
 
 def validate_ctr(ctr: CTR) -> None:
@@ -76,7 +93,16 @@ def validate_ctr(ctr: CTR) -> None:
         SearchDocuments.model_validate(ctr_dict)
     elif ctr.task_type == "GENERATE_PASSWORD":
         GeneratePassword.model_validate(ctr_dict)
+    elif ctr.task_type == "AUTOFILL_APP":
+        autofill_app_action(
+            app_name=ctr.params["app_name"],
+            dry_run=False
+        )
     elif ctr.task_type == "SCAN_PASSWORD_FIELDS":
         ScanPasswordFields.model_validate(ctr_dict)
+    elif ctr.task_type == "BULK_RENAME":
+        BulkRename.model_validate(ctr_dict)
+    elif ctr.task_type == "FIND_RECEIPTS":
+        FindReceipts.model_validate(ctr_dict)
     else:
         raise ValueError(f"Unknown task_type: {ctr.task_type}")

@@ -5,6 +5,28 @@ from features.projects import create_project
 from features.vault import generate_password_action
 from features.vault import scan_password_fields
 from features.vault import vault
+from features.rename import bulk_rename_action
+from features.receipts import find_receipts_action
+from core.nlu_router import route
+from core.workflow import run_workflow
+
+def interactive_mode():
+    print("🤖 AI-OS Interactive Mode (type 'exit' to quit)\n")
+
+    from core.nlu_router import route
+    from core.workflow import run_workflow
+
+    while True:
+        text = input("ai-os > ")
+
+        if text.lower() in ["exit", "quit"]:
+            break
+
+        try:
+            ctr = route(text)
+            run_workflow(ctr, dry_run=False)
+        except Exception as e:
+            print(f"❌ {e}")
 
 def main():
     parser = argparse.ArgumentParser(description="AI OS Agent CLI")
@@ -42,6 +64,32 @@ def main():
     autofill_config = subparsers.add_parser("autofill-config")
     autofill_config.add_argument("file", help="Config file path")
     autofill_config.add_argument("--apply", action="store_true")
+    
+    #Rename
+    bulk_rename = subparsers.add_parser("bulk-rename")
+    bulk_rename.add_argument("source_dir", help="Directory to rename")
+    bulk_rename.add_argument("--pattern", default="date_slug", 
+                            choices=["date_slug", "number", "timestamp"], 
+                            help="Rename pattern")
+    bulk_rename.add_argument("--apply", dest="dry_run", action="store_false")
+
+    #Find Receipts
+    find_receipts_parser = subparsers.add_parser("find-receipts", help="AI-powered document search")
+    find_receipts_parser.add_argument("source_dir")                          # REQUIRED
+    find_receipts_parser.add_argument("--query", default="receipt", help="What to search for (e.g. 'Starbucks coffee')")
+    find_receipts_parser.add_argument("--export", help="Export directory")
+    find_receipts_parser.add_argument(
+        "--apply",
+        dest="dry_run",
+        action="store_false",
+        default=True,
+        help="Execute (not dry-run)"
+    )
+
+    nl = subparsers.add_parser("nl")
+    nl.add_argument("text", help="Natural language command")
+
+    chat = subparsers.add_parser("chat")
 
     args = parser.parse_args()
     
@@ -61,6 +109,15 @@ def main():
         vault.autofill_app(args.app, dry_run=not args.apply)
     elif args.command == "autofill-config":
         vault.autofill_config(args.file, dry_run=not args.apply)
+    elif args.command == "bulk-rename":
+        bulk_rename_action(args.source_dir, args.pattern, args.dry_run)
+    elif args.command == "find-receipts":
+        find_receipts_action(args.source_dir, args.query, args.export, args.dry_run)
+    elif args.command == "nl":
+        ctr = route(args.text)
+        run_workflow(ctr, dry_run=False)
+    elif args.command == "chat":
+        interactive_mode()
     else:
         parser.print_help()
 

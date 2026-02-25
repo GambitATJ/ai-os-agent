@@ -30,5 +30,14 @@ echo -e "\n4️⃣ FULL AUDIT TRAIL"
 echo "Last 5 CTR actions:"
 tail -3 ~/.aios/ctr.log
 
+echo -e "\n5️⃣ BULK RENAME"
+mkdir ~/test_rename; touch ~/test_rename/{photo{1..3}.jpg}
+python -m cli.main bulk-rename ~/test_rename --pattern date_slug --apply
+ls ~/test_rename
+
+echo -e "\n6️⃣ TEMPLATES"
+python -m cli.main generate-template invoice ~/test_invoice.txt --apply
+cat ~/test_invoice.txt
+
 echo -e "\n🎉 DEMO COMPLETE! Core architecture + 3 features working"
 echo "Repo: https://github.com/GambitATJ/ai-os-agent"
