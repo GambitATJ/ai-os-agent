@@ -132,11 +132,16 @@ def extract_query_word(text: str):
     if quoted:
         return quoted[0]
 
-    # 2️⃣ Remove structural words
+    # 2️⃣ Strip trailing clauses: "and copy to <dir>", then "in <dir>"
+    cleaned = re.sub(r'\s+and\s+copy\s+to\s+\S+', '', text_lower)
+    cleaned = re.sub(r'\s+copy\s+to\s+\S+', '', cleaned)
+    cleaned = re.sub(r'\s+in\s+\S+', '', cleaned)
+
+    # 3️⃣ Remove command verbs, filler words, and orphaned conjunctions
     cleaned = re.sub(
-        r"(find|search|look|lookup|receipts?|receipt|documents?|document|for|in\s+[^\s]+|copy to\s+[^\s]+)",
-        "",
-        text_lower
+        r'\b(find|search|look|lookup|for|receipts?|receipt|documents?|document|and)\b',
+        '',
+        cleaned
     )
 
     cleaned = cleaned.strip()
@@ -193,15 +198,26 @@ def build_ctr(task: str, text: str) -> CTR:
         source = None
         export = None
 
-        # Detect source after "in ..."
-        match_in = re.search(r'in\s+([^\s]+)', text)
-        if match_in:
-            source = match_in.group(1)
-
-        # Detect export after "copy to ..."
-        match_copy = re.search(r'copy to\s+([^\s]+)', text)
+        # Detect export FIRST (so "in" pattern doesn't eat it) — "copy to <dir>"
+        match_copy = re.search(r'copy\s+to\s+(\S+)', text, re.IGNORECASE)
         if match_copy:
             export = match_copy.group(1)
+
+        # Detect source after "in <dir>" (skip if it's part of copy-to fragment)
+        match_in = re.search(r'\bin\s+(\S+)', text, re.IGNORECASE)
+        if match_in:
+            candidate = match_in.group(1)
+            # Ignore "in" matches that are part of the copy-to phrase
+            if export and candidate.rstrip(',') == export.lstrip('~/'):
+                pass
+            else:
+                source = candidate
+
+        # Resolve bare directory names (no ~ or /) relative to home
+        if source and not source.startswith('~') and not source.startswith('/'):
+            source = f'~/{source}'
+        if export and not export.startswith('~') and not export.startswith('/'):
+            export = f'~/{export}'
 
         query = extract_query_word(text)
 

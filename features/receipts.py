@@ -8,15 +8,11 @@ import pytesseract
 import subprocess
 from pdf2image import convert_from_path
 from PIL import Image
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 from core.ctr import CTR, validate_ctr
 from core.policy import check_policy
 from core.logger import log_ctr
-
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+from core.nlu_router import get_model
 
 def ocr_image(file_path):
     if file_path.suffix.lower() == ".pdf":
@@ -32,12 +28,13 @@ def ocr_image(file_path):
 
 def rank_receipts_against_query(files_content, query):
     """Semantic ranking using embeddings (LLM-style similarity)."""
-    
+
     texts = [f["content"] for f in files_content]
+    model = get_model()
 
     # Create embeddings
-    query_embedding = embedding_model.encode([query])
-    doc_embeddings = embedding_model.encode(texts)
+    query_embedding = model.encode([query])
+    doc_embeddings = model.encode(texts)
 
     # Compute similarity
     similarities = cosine_similarity(query_embedding, doc_embeddings)[0]
