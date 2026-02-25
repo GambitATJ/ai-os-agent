@@ -6,11 +6,12 @@ from pydantic import BaseModel, Field
 # Define allowed task types
 TaskType = Literal[
     "ORGANIZE_DOWNLOADS",
-    "CREATE_PROJECT_SCAFFOLD", 
+    "CREATE_PROJECT_SCAFFOLD",
     "BULK_RENAME",
     "SEARCH_DOCUMENTS",
-    "GENERATE_PASSWORD",      # ← ADD THIS
+    "GENERATE_PASSWORD",
     "SCAN_PASSWORD_FIELDS",
+    "AUTOFILL_APP",
     "FIND_RECEIPTS"
 ]
 
@@ -68,6 +69,11 @@ class GeneratePassword(BaseModel):
 class ScanPasswordFields(BaseModel):
     task_type: Literal["SCAN_PASSWORD_FIELDS"] = "SCAN_PASSWORD_FIELDS"
     scope: str
+
+
+class AutofillApp(BaseModel):
+    task_type: Literal["AUTOFILL_APP"] = "AUTOFILL_APP"
+    app_name: str
     
 # class BulkRename(BaseModel):
 #     task_type: Literal["BULK_RENAME"] = "BULK_RENAME"
@@ -94,10 +100,7 @@ def validate_ctr(ctr: CTR) -> None:
     elif ctr.task_type == "GENERATE_PASSWORD":
         GeneratePassword.model_validate(ctr_dict)
     elif ctr.task_type == "AUTOFILL_APP":
-        autofill_app_action(
-            app_name=ctr.params["app_name"],
-            dry_run=False
-        )
+        AutofillApp.model_validate(ctr_dict)
     elif ctr.task_type == "SCAN_PASSWORD_FIELDS":
         ScanPasswordFields.model_validate(ctr_dict)
     elif ctr.task_type == "BULK_RENAME":
