@@ -97,6 +97,13 @@ def _execute_pure_action(ctr: CTR, dry_run: bool):
             dry_run
         )
 
+    elif t == "AUTOFILL_APP":
+        from features.vault import vault
+        vault.autofill_app(
+            p["app_name"],
+            dry_run
+        )
+
     elif t == "BULK_RENAME":
         from features.rename import bulk_rename_action
         bulk_rename_action(

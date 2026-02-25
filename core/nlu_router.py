@@ -39,7 +39,12 @@ INTENT_EXAMPLES = {
         "copy spotify password",
         "login to spotify",
         "use spotify account",
-        "get spotify password"
+        "get spotify password",
+        "paste password for discord",
+        "get my discord password",
+        "autofill discord",
+        "copy password for github",
+        "fill in my password for steam"
     ],
     "FIND_RECEIPTS": [
         "find receipt",
@@ -53,7 +58,12 @@ INTENT_EXAMPLES = {
     "GENERATE_PASSWORD": [
         "create password",
         "generate secure password",
-        "make password for spotify"
+        "make password for spotify",
+        "generate password for github",
+        "create a new password for discord",
+        "new password for steam",
+        "make me a password",
+        "generate password"
     ],
     "BULK_RENAME": [
         "rename files in folder",
@@ -152,17 +162,20 @@ def extract_query_word(text: str):
     return ""
 
 
-def extract_app_name(text: str):
+def extract_app_name(text: str) -> str:
     """
-    For vault commands like:
-    - autofill spotify
-    - login to spotify
+    Extract clean app name from vault commands like:
+    - autofill spotify           → 'spotify'
+    - generate password for github → 'github'
+    - login to discord           → 'discord'
     """
-    text = text.lower()
-    words = text.split()
-
-    # Usually app is last word
-    return words[-1]
+    text = text.lower().strip()
+    # Remove noise words, keep the meaningful noun(s)
+    noise = r'\b(generate|create|make|new|a|an|the|password|pass|pw|for|autofill|fill|copy|get|login|to|use|account|my|me|into|in|secure|strong)\b'
+    cleaned = re.sub(noise, '', text).strip()
+    # Collapse extra spaces, take first remaining token as the app name
+    tokens = cleaned.split()
+    return tokens[0] if tokens else text.split()[-1]
 
 
 def build_ctr(task: str, text: str) -> CTR:

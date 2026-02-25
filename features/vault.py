@@ -123,31 +123,45 @@ class PasswordVault:
         return login_patterns.get(app_name.lower())
     
     def autofill_app(self, app_name: str, dry_run: bool = True) -> bool:
-        """Autofill detected app login."""
-        label = self.detect_app_login(app_name)
-        if not label:
-            print(f"[VAULT] ℹ️  No login pattern known for '{app_name}'")
-            print("     Add to vault with: aios generate-password <custom-label>")
-            return False
+        """Autofill detected app login.
         
+        Label resolution order:
+          1. app_name directly (e.g. 'spotify')
+          2. Old lookup table for backward compat (e.g. 'spotify_account')
+        If no password exists at all, generates one on the spot.
+        """
+        import pyperclip
+
+        # Try direct label first, then legacy lookup
+        label = app_name.lower().strip()
         password = self.get_password(label)
+
         if not password:
-            print(f"[VAULT] ❌ No saved password for '{label}'")
-            print(f"     Generate: aios generate-password {label}")
-            return False
-        
-        if dry_run:
-            print(f"[DRY-RUN] Would autofill '{app_name}' from vault:{label}")
-            print(f"         Password: {password[:8]}**** (copied to clipboard)")
-        else:
-            try:
-                import pyperclip
+            legacy_label = self.detect_app_login(app_name)
+            if legacy_label:
+                password = self.get_password(legacy_label)
+                if password:
+                    label = legacy_label
+
+        if password:
+            if dry_run:
+                print(f"[DRY-RUN] Would copy '{app_name}' password to clipboard (vault:{label})")
+                print(f"          Password: {password[:8]}****")
+            else:
                 pyperclip.copy(password)
-                print(f"[AUTOFILL] ✅ '{app_name}' password copied to clipboard from {label}")
-                print(f"         Ready to paste (Ctrl+V)")
-            except ImportError:
-                print(f"[AUTOFILL] ✅ Password ready: {password[:8]}**** from {label}")
-        
+                print(f"[AUTOFILL] ✅ '{app_name}' password copied to clipboard")
+                print(f"           Ready to paste (Ctrl+V)")
+            return True
+
+        # No saved password → generate + store now
+        print(f"[VAULT] ℹ️  No saved password for '{app_name}' — generating one...")
+        if dry_run:
+            print(f"[DRY-RUN] Would generate & store password for '{label}'")
+        else:
+            pw, strength = self.generate_password(label)
+            pyperclip.copy(pw)
+            print(f"[VAULT] ✅ Generated password for '{label}' (strength: {strength}/100)")
+            print(f"         Stored in vault + copied to clipboard")
         return True
     
     def autofill_config(self, file_path: str, dry_run: bool = True) -> List[str]:
@@ -228,6 +242,12 @@ def generate_password_action(label: str, length: int = 20,
         password, strength = vault.generate_password(label, length, uppercase, lowercase, digits, symbols)
         print(f"[EXECUTOR] ✅ Generated: {password[:8]}... (strength: {strength}/100)")
         print(f"           Stored in vault: {VAULT_PATH}")
+        try:
+            import pyperclip
+            pyperclip.copy(password)
+            print(f"           📋 Copied to clipboard — ready to paste (Ctrl+V)")
+        except Exception:
+            pass
         log_ctr(ctr, "COMPLETED", {"strength": strength})
 
 

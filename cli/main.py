@@ -136,6 +136,13 @@ def main():
 
     chat = subparsers.add_parser("chat")
 
+    hotkey_p = subparsers.add_parser("hotkey", help="Start global hotkey daemon")
+    hotkey_p.add_argument(
+        "--key",
+        default="<ctrl>+<alt>+v",
+        help="Hotkey combination (default: <ctrl>+<alt>+v)"
+    )
+
     args = parser.parse_args()
     
     if args.command == "organize-downloads":
@@ -171,6 +178,9 @@ def main():
             spinner.stop()
     elif args.command == "chat":
         interactive_mode()
+    elif args.command == "hotkey":
+        from hotkey_daemon import run_daemon
+        run_daemon(args.key)
     else:
         parser.print_help()
 
