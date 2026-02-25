@@ -185,7 +185,9 @@ def build_ctr(task: str, text: str) -> CTR:
     # --------------------------------------------------
 
     if task == "ORGANIZE_DOWNLOADS":
-        source = paths[0] if paths else "~/Downloads"
+        # Only use extracted path if it looks like a real path (contains / or ~)
+        real_path = next((p for p in paths if '/' in p or p.startswith('~')), None)
+        source = real_path if real_path else "~/Downloads"
         return CTR(
             task_type="ORGANIZE_DOWNLOADS",
             params={"source_dir": source}
@@ -264,7 +266,9 @@ def build_ctr(task: str, text: str) -> CTR:
     # --------------------------------------------------
 
     if task == "BULK_RENAME":
-        source = paths[0] if paths else "."
+        # Only use extracted path if it looks like a real path (contains / or ~)
+        real_path = next((p for p in paths if '/' in p or p.startswith('~')), None)
+        source = real_path if real_path else "."
         return CTR(
             task_type="BULK_RENAME",
             params={

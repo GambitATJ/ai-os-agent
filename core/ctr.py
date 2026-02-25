@@ -38,7 +38,7 @@ class CreateProject(BaseModel):
 
 class BulkRename(BaseModel):
     task_type: Literal["BULK_RENAME"] = "BULK_RENAME"
-    folder: str
+    source_dir: str
     pattern: str = "date_slug"
 
 class FindReceipts(BaseModel):
