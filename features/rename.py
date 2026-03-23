@@ -14,6 +14,11 @@ class BulkRename:
     
     def bulk_rename(self, source_dir: str, pattern: str, dry_run: bool = True) -> List[Dict]:
         """Bulk rename files using pattern."""
+        from checkpoint_manager import CheckpointManager
+        cm = CheckpointManager()
+        affected = [str(p) for p in Path(source_dir).expanduser().resolve().glob("*")] + [source_dir]
+        cm.capture(affected, command_text="Bulk rename files in a directory using a pattern")
+
         source_path = Path(source_dir).expanduser().resolve()
         if not source_path.exists():
             print(f"[RENAME] ❌ Directory not found: {source_dir}")

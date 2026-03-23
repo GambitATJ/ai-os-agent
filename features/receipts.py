@@ -52,6 +52,12 @@ def rank_receipts_against_query(files_content, query):
 
 def process_receipts(source_dir: str, query: str, export_dir: Optional[str] = None, dry_run: bool = True) -> List[Dict]:
     """AI-powered: OCR → Rank documents by query relevance."""
+    from checkpoint_manager import CheckpointManager
+    cm = CheckpointManager()
+    exp_dir = export_dir if export_dir else str(Path(source_dir or "~/test_receipts").expanduser() / "Receipts")
+    affected = [exp_dir]
+    cm.capture(affected, command_text="OCR and semantic ranking of receipts")
+
     if not source_dir:
         source_path = Path.home() / "test_receipts"
     else:

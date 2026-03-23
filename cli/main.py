@@ -18,8 +18,11 @@ from features.vault import scan_password_fields
 from features.vault import vault
 from features.rename import bulk_rename_action
 from features.receipts import find_receipts_action
-from core.nlu_router import route
+from core.nlu_router import route, get_model
 from core.workflow import run_workflow
+from checkpoint_manager import CheckpointManager
+from db_manager import SQLiteManager
+import numpy as np
 
 # ── Re-enable logging for our own output ─────────────────────────────────────
 logging.disable(logging.NOTSET)
@@ -66,6 +69,35 @@ def interactive_mode():
 
         if text.lower() in ["exit", "quit"]:
             break
+
+        # --- Undo Logic ---
+        if any(substring in text.lower() for substring in ['undo that', 'revert last', 'undo last', 'roll back']):
+            cm = CheckpointManager()
+            print(cm.restore())
+            continue
+
+        if text.lower().startswith('undo '):
+            query_str = text[5:].strip()
+            if query_str:
+                model = get_model()
+                query_embedding = model.encode([query_str])[0]
+                db = SQLiteManager()
+                rows = db.fetch_all("checkpoints")
+                db.close()
+                if rows:
+                    best_id = None
+                    best_score = -1
+                    for row in rows:
+                        cmd_emb = model.encode([row["command_text"]])[0]
+                        score = float(np.dot(query_embedding, cmd_emb) / 
+                                      max(np.linalg.norm(query_embedding) * np.linalg.norm(cmd_emb), 1e-9))
+                        if score > best_score:
+                            best_score = score
+                            best_id = row["id"]
+                    if best_id is not None:
+                        cm = CheckpointManager()
+                        print(cm.restore(checkpoint_id=best_id))
+                        continue
 
         try:
             ctr = route(text)
@@ -168,6 +200,38 @@ def main():
     elif args.command == "nl":
         spinner = Spinner("Running")
         spinner.start()
+        
+        # --- Undo Logic ---
+        text_lower = args.text.lower()
+        if any(substring in text_lower for substring in ['undo that', 'revert last', 'undo last', 'roll back']):
+            spinner.stop()
+            cm = CheckpointManager()
+            print(cm.restore())
+            return
+
+        if text_lower.startswith('undo '):
+            query_str = args.text[5:].strip()
+            if query_str:
+                model = get_model()
+                query_embedding = model.encode([query_str])[0]
+                db = SQLiteManager()
+                rows = db.fetch_all("checkpoints")
+                db.close()
+                if rows:
+                    best_id = None
+                    best_score = -1
+                    for row in rows:
+                        cmd_emb = model.encode([row["command_text"]])[0]
+                        score = float(np.dot(query_embedding, cmd_emb) / 
+                                      max(np.linalg.norm(query_embedding) * np.linalg.norm(cmd_emb), 1e-9))
+                        if score > best_score:
+                            best_score = score
+                            best_id = row["id"]
+                    if best_id is not None:
+                        spinner.stop()
+                        cm = CheckpointManager()
+                        print(cm.restore(checkpoint_id=best_id))
+                        return
         try:
             ctr = route(args.text)
             run_workflow(ctr, dry_run=False)

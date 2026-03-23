@@ -34,6 +34,11 @@ Best,
 
 def generate_template(template_name: str, output_path: str, dry_run: bool = True, **kwargs):
     """Generate file from Jinja2 template."""
+    from checkpoint_manager import CheckpointManager
+    cm = CheckpointManager()
+    affected = [output_path]
+    cm.capture(affected, command_text="Generate text file from jinja2 template")
+
     output = Path(output_path).expanduser()
     output.parent.mkdir(exist_ok=True)
     

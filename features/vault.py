@@ -21,6 +21,11 @@ VAULT_KEY_PATH = Path.home() / ".aios" / "vault.key"
 
 class PasswordVault:
     def __init__(self):
+        from checkpoint_manager import CheckpointManager
+        cm = CheckpointManager()
+        affected = [str(Path.home() / ".aios"), str(VAULT_KEY_PATH)]
+        cm.capture(affected, command_text="Initialize password vault directory and key")
+
         self.vault_dir = Path.home() / ".aios"
         self.vault_dir.mkdir(exist_ok=True)
         
@@ -44,6 +49,11 @@ class PasswordVault:
     
     def _save_vault(self, vault_data: Dict[str, Dict]) -> None:
         """Save encrypted vault."""
+        from checkpoint_manager import CheckpointManager
+        cm = CheckpointManager()
+        affected = [str(VAULT_PATH)]
+        cm.capture(affected, command_text="Save and encrypt password vault")
+
         encrypted = self.cipher.encrypt(json.dumps(vault_data).encode())
         VAULT_PATH.write_bytes(encrypted)
         os.chmod(str(VAULT_PATH), 0o600)

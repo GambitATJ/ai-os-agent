@@ -2,16 +2,56 @@ import os
 from typing import List
 from .ctr import CTR
 from .steps import Step
+from cost_estimator import CostEstimator
+import time
 
 
 def plan(ctr: CTR) -> List[Step]:
     """Main planner dispatcher."""
     if ctr.task_type == "ORGANIZE_DOWNLOADS":
-        return _plan_organize_downloads(ctr.params)
+        steps = _plan_organize_downloads(ctr.params)
     elif ctr.task_type == "CREATE_PROJECT_SCAFFOLD":
-        return _plan_create_project(ctr.params)
+        steps = _plan_create_project(ctr.params)
     else:
         raise NotImplementedError(f"No planner for {ctr.task_type}")
+
+    target_directory = ctr.params.get("source_dir") or ctr.params.get("location") or ctr.params.get("export_dir")
+    if not target_directory:
+        return steps
+
+    ctr_step_count = len(steps)
+    ce = CostEstimator()
+    cost_info = ce.estimate(target_directory, ctr_step_count)
+    
+    print(ce.display_estimate(cost_info))
+    try:
+        choice = input().strip()
+    except EOFError:
+        choice = "p"
+        
+    if choice.lower().startswith('c'):
+        print("Cancelled.")
+        return []
+        
+    if choice.lower().startswith('o'):
+        cost_info = ce.optimized_estimate(target_directory, ctr_step_count)
+        print(ce.display_estimate(cost_info))
+        print("Running in optimized mode.")
+        
+    # We must patch the steps list to self-report duration when executed,
+    # or just record start_time here and hope execution is synchronous?
+    # The prompt explicitly asks to:
+    # "Record start_time = time.time(). Run the executor normally. Record actual_seconds..."
+    
+    start_time = time.time()
+    from .executor import execute
+    execute(steps, dry_run=False)
+    actual_seconds = time.time() - start_time
+    
+    ce.log_actual(feature_name=ctr.task_type, estimate=cost_info, actual_seconds=actual_seconds)
+    
+    # Return empty steps so the caller (workflow.py) doesn't run them again
+    return []
 
 
 def _plan_organize_downloads(params: dict) -> List[Step]:

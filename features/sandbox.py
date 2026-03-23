@@ -10,6 +10,11 @@ class Sandbox:
     
     def process_receipts(self, source_dir: str) -> Dict[str, Any]:
         """Process receipts in isolated Docker container."""
+        from checkpoint_manager import CheckpointManager
+        cm = CheckpointManager()
+        affected = [source_dir]
+        cm.capture(affected, command_text="Copy receipts to sandbox directory")
+
         # Copy files to temp sandbox
         sandbox_dir = Path(tempfile.mkdtemp())
         shutil.copytree(source_dir, sandbox_dir / "input", dirs_exist_ok=True)

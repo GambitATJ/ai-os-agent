@@ -1,3 +1,5 @@
+import json
+import dataclasses
 from dataclasses import dataclass
 from typing import Literal, Dict, Any, Optional, Literal
 from pydantic import BaseModel, Field
@@ -21,6 +23,42 @@ class CTR:
     task_type: TaskType
     params: Dict[str, Any]
     version: str = "1.0"
+
+    def to_json(self) -> str:
+        """Serialize the entire CTR dataclass to a JSON string.
+
+        All fields are included. Any field that is not JSON-serializable
+        by default is converted to its string representation.
+        """
+        def _safe(obj):
+            """Recursively make *obj* JSON-serializable."""
+            if isinstance(obj, dict):
+                return {k: _safe(v) for k, v in obj.items()}
+            if isinstance(obj, (list, tuple)):
+                return [_safe(v) for v in obj]
+            try:
+                json.dumps(obj)
+                return obj
+            except (TypeError, ValueError):
+                return str(obj)
+
+        raw = dataclasses.asdict(self)
+        safe_dict = {k: _safe(v) for k, v in raw.items()}
+        return json.dumps(safe_dict)
+
+    @classmethod
+    def from_json(cls, json_str: str) -> 'CTR':
+        """Deserialize a JSON string back into a CTR dataclass instance.
+
+        Reconstructs all fields to their original types as defined in the
+        dataclass (task_type: str, params: dict, version: str).
+        """
+        data = json.loads(json_str)
+        return cls(
+            task_type=str(data["task_type"]),
+            params=dict(data.get("params", {})),
+            version=str(data.get("version", "1.0")),
+        )
 
 
 # Pydantic models for validation (more robust)
