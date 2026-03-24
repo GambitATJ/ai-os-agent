@@ -282,6 +282,81 @@ PYEOF
 
 
 # ════════════════════════════════════════════════
+# 12. DATABASE — Live SQLite state behind every action
+# ════════════════════════════════════════════════
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  1️⃣2️⃣  DATABASE — Checkpoint capture → inspect → undo"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "  Step 1: Run the file organiser for real (writes a checkpoint to SQLite)"
+echo ""
+
+python -m cli.main nl "organize ~/Downloads_test"
+
+echo ""
+echo "  Step 2: Inspect the checkpoints table — the DB captured the state BEFORE the move"
+echo ""
+
+.venv/bin/python3 - <<'PYEOF'
+from db_manager import SQLiteManager
+import json
+
+db = SQLiteManager()
+rows = db.fetch_all("checkpoints")
+db.close()
+
+if not rows:
+    print("  (no checkpoints yet — run the organiser first)")
+else:
+    latest = rows[-1]
+    snapshot = json.loads(latest["checkpoint_json"])
+    print(f"  Latest checkpoint  id={latest['id']}")
+    print(f"  Command : {latest['command_text']}")
+    print(f"  Captured: {latest['timestamp']}")
+    print(f"  Files snapshotted: {len(snapshot.get('files', {}))}")
+    print(f"  Dirs snapshotted : {len(snapshot.get('dirs', {}))}")
+    print(f"\n  Total checkpoints in DB: {len(rows)}")
+PYEOF
+
+echo ""
+echo "  Step 3: Revert — the undo command reads that checkpoint and reports changes"
+echo ""
+
+python -m cli.main nl "revert last"
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  Performance log — estimated vs actual timing"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "  Every completed command logs its predicted and actual duration."
+echo "  Running rename so the cost estimator logs a row, then querying it:"
+echo ""
+
+python -m cli.main bulk-rename ~/test_rename --pattern date_slug --apply
+
+echo ""
+
+.venv/bin/python3 - <<'PYEOF'
+from db_manager import SQLiteManager
+
+db = SQLiteManager()
+rows = db.fetch_recent("performance_log", hours=24)
+db.close()
+
+if not rows:
+    print("  (no performance entries yet — run a command via the nl dispatcher first)")
+else:
+    print(f"  {'Feature':<30} {'Estimated':>10} {'Actual':>10} {'Files':>6} {'Steps':>6}")
+    print(f"  {'-'*30} {'-'*10} {'-'*10} {'-'*6} {'-'*6}")
+    for r in rows[-5:]:          # show up to last 5 entries
+        print(f"  {r['feature_name']:<30} {str(r['estimated_seconds'])+'s':>10} {str(r['actual_seconds'])+'s':>10} {str(r['file_count']):>6} {str(r['step_count']):>6}")
+    print(f"\n  Total entries in performance_log: {len(db.fetch_all('performance_log')) if False else len(rows)}")
+PYEOF
+
+
+# ════════════════════════════════════════════════
 # DONE
 # ════════════════════════════════════════════════
 echo ""
