@@ -21,11 +21,6 @@ VAULT_KEY_PATH = Path.home() / ".aios" / "vault.key"
 
 class PasswordVault:
     def __init__(self):
-        from checkpoint_manager import CheckpointManager
-        cm = CheckpointManager()
-        affected = [str(Path.home() / ".aios"), str(VAULT_KEY_PATH)]
-        cm.capture(affected, command_text="Initialize password vault directory and key")
-
         self.vault_dir = Path.home() / ".aios"
         self.vault_dir.mkdir(exist_ok=True)
         

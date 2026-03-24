@@ -22,6 +22,7 @@ from core.nlu_router import route, get_model
 from core.workflow import run_workflow
 from checkpoint_manager import CheckpointManager
 from db_manager import SQLiteManager
+from session_manager import handle_resume_command
 import numpy as np
 
 # ── Re-enable logging for our own output ─────────────────────────────────────
@@ -69,6 +70,17 @@ def interactive_mode():
 
         if text.lower() in ["exit", "quit"]:
             break
+
+        # --- Session Resume Logic ---
+        if any(kw in text.lower() for kw in ('resume', 'continue', 'what was i doing', 'resume old task', 'what did i do', 'yesterday')):
+            result = handle_resume_command(text)
+            if isinstance(result, tuple):
+                msg, recovered_ctr = result
+                print(msg)
+                run_workflow(recovered_ctr, dry_run=False)
+            else:
+                print(result)
+            continue
 
         # --- Undo Logic ---
         if any(substring in text.lower() for substring in ['undo that', 'revert last', 'undo last', 'roll back']):
