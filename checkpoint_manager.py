@@ -86,18 +86,17 @@ class CheckpointManager:
     # ------------------------------------------------------------------
 
     def restore(self, checkpoint_id: int = None) -> str:
-        """Describe or perform a restore from a stored checkpoint.
+        """Restore the filesystem to the state captured in a checkpoint.
 
-        Compares the current filesystem state against the snapshot.
-        Modified files are flagged; missing files are listed as
-        candidates for restoration.
-
-        Args:
-            checkpoint_id: Row id to restore. If None, the most-recent
-                           checkpoint is used.
+        For each file that was present at capture time:
+          - If it still exists unchanged at the original path -> skip.
+          - If it is missing -> search snapshot parent dirs one level deep
+            for a file with the same name and matching MD5, then move it back.
+          - If it was modified in place -> warn (cannot restore without a
+            full byte backup).
 
         Returns:
-            "restore complete" on success, or "No checkpoint found."
+            Summary string describing what was done.
         """
         db = SQLiteManager()
 
@@ -118,47 +117,76 @@ class CheckpointManager:
         db.close()
 
         snapshot: dict = json.loads(row["checkpoint_json"])
-        file_hashes: dict         = snapshot.get("file_hashes", {})
-        directory_listings: dict  = snapshot.get("directory_listings", {})
+        file_hashes: dict        = snapshot.get("file_hashes", {})
+        directory_listings: dict = snapshot.get("directory_listings", {})
 
-        # --- File-level comparison ---
-        for path, stored_hash in file_hashes.items():
+        restored = []
+        warnings = []
+        all_snapshot_dirs = list(directory_listings.keys())
+
+        for orig_path, stored_hash in file_hashes.items():
             if stored_hash is None:
-                continue  # was missing/dir at capture time — skip
+                continue  # was already absent at capture time
 
-            if not os.path.exists(path):
-                print(f"Warning: cannot restore {path}, file missing from backup.")
+            if os.path.exists(orig_path):
+                if self._md5(orig_path) == stored_hash:
+                    continue  # unchanged
+                warnings.append(f"  warning: modified in place, cannot restore: {orig_path}")
                 continue
 
-            current_hash = self._md5(path)
-            if current_hash != stored_hash:
-                # File was modified — attempt backup restore.
-                backup_path = self._find_in_backup(path)
-                if backup_path and os.path.exists(backup_path):
-                    shutil.copy2(backup_path, path)
-                else:
-                    print(
-                        f"Warning: cannot restore {path}, "
-                        "file missing from backup."
-                    )
+            # File is absent from its original location — hunt for it.
+            filename = os.path.basename(orig_path)
+            found_at = None
 
-        # --- Directory-level comparison ---
-        for parent_dir, stored_listing in directory_listings.items():
-            try:
-                current_listing = os.listdir(parent_dir)
-            except (PermissionError, FileNotFoundError):
-                current_listing = []
+            # Search each snapshot dir and its immediate sub-directories
+            for snap_dir in all_snapshot_dirs:
+                if not os.path.isdir(snap_dir):
+                    continue
+                # Check direct children of snap_dir
+                candidate = os.path.join(snap_dir, filename)
+                if os.path.isfile(candidate):
+                    try:
+                        if self._md5(candidate) == stored_hash:
+                            found_at = candidate
+                            break
+                    except Exception:
+                        pass
+                # Check one level of sub-directories (e.g. Documents/, Images/)
+                if not found_at:
+                    try:
+                        for entry in os.scandir(snap_dir):
+                            if entry.is_dir():
+                                deep = os.path.join(entry.path, filename)
+                                if os.path.isfile(deep):
+                                    try:
+                                        if self._md5(deep) == stored_hash:
+                                            found_at = deep
+                                            break
+                                    except Exception:
+                                        pass
+                    except PermissionError:
+                        pass
+                if found_at:
+                    break
 
-            current_set = set(current_listing)
-            for filename in stored_listing:
-                if filename not in current_set:
-                    print(f"Would restore: {filename} to {parent_dir}")
+            if found_at:
+                os.makedirs(os.path.dirname(orig_path), exist_ok=True)
+                shutil.move(found_at, orig_path)
+                restored.append(f"  restored: {filename}  ({found_at} -> {orig_path})")
+            else:
+                warnings.append(f"  cannot locate: {orig_path}")
 
-        print(
-            f"Restored checkpoint from: {row['timestamp']} "
-            f"triggered by: {row['command_text']}"
-        )
-        return "restore complete"
+        print(f"\n[RESTORE] checkpoint: '{row['command_text']}' ({row['timestamp']})")
+        if restored:
+            print(f"[RESTORE] {len(restored)} file(s) moved back:")
+            for line in restored: print(line)
+        if warnings:
+            print(f"[RESTORE] {len(warnings)} issue(s):")
+            for line in warnings: print(line)
+        if not restored and not warnings:
+            print("[RESTORE] Nothing to restore — filesystem matches the checkpoint.")
+
+        return f"restore complete ({len(restored)} files moved back)"
 
     # ------------------------------------------------------------------
     # Helpers

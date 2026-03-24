@@ -1,10 +1,12 @@
 from typing import List
+import time
 from .ctr import CTR, validate_ctr
 from .policy import check_policy
 from .planner import plan
 from .executor import execute
 from .logger import log_ctr
 from .steps import Step
+from cost_estimator import CostEstimator
 
 
 def run_workflow(ctr: CTR, dry_run: bool = True) -> List[Step]:
@@ -34,7 +36,32 @@ def run_workflow(ctr: CTR, dry_run: bool = True) -> List[Step]:
         check_policy(ctr, affected_paths)
         log_ctr(ctr, "POLICY_APPROVED", {"affected_paths": len(affected_paths)})
 
+        # --- Cost estimation intercept (only when not dry-run) ---
+        target_directory = ctr.params.get("source_dir") or ctr.params.get("location") or ctr.params.get("export_dir")
+        cost_info = None
+        ce = None
+        if target_directory and not dry_run:
+            ce = CostEstimator()
+            cost_info = ce.estimate(target_directory, len(steps))
+            print(ce.display_estimate(cost_info))
+            try:
+                choice = input().strip()
+            except EOFError:
+                choice = "p"
+            if choice.lower().startswith('c'):
+                print("Cancelled.")
+                log_ctr(ctr, "COMPLETED", {"dry_run": dry_run, "cancelled": True})
+                return steps
+            if choice.lower().startswith('o'):
+                cost_info = ce.optimized_estimate(target_directory, len(steps))
+                print(f"Optimized: {ce.display_estimate(cost_info).split('[')[0].strip()}")
+                print("Running in optimized mode.")
+
+        start_time = time.time()
         execute(steps, dry_run)
+        if ce and cost_info:
+            ce.log_actual(feature_name=ctr.task_type, estimate=cost_info,
+                          actual_seconds=time.time() - start_time)
 
     else:
         check_policy(ctr, [])
