@@ -1,12 +1,22 @@
 #!/bin/bash
 # AI-OS Agent — Live Demo Script
 # ================================
-# Paste each section one-by-one in your terminal.
-# Run `aios` first to activate the environment.
 #
-#   aios
+# ┌─────────────────────────────────────────────────────┐
+# │  START THE INTERACTIVE CHAT UI:                     │
+# │                                                     │
+# │      source .venv/bin/activate                      │
+# │      python -m cli.main                             │
+# │                                                     │
+# │  Then type any command in plain English, e.g.:      │
+# │    organize my downloads                            │
+# │    find receipts in ~/Documents                     │
+# │    generate password for spotify                    │
+# │    undo last                                        │
+# └─────────────────────────────────────────────────────┘
 #
-# ──────────────────────────────────────────────
+# Paste each section below one-by-one to demo individual features.
+#
 
 echo ""
 echo "╔══════════════════════════════════════════════╗"

@@ -17,6 +17,7 @@ ENV/
 
 # Secrets / vault
 .aios/
+.env
 
 # Editor
 .vscode/
@@ -33,5 +34,9 @@ Thumbs.db
 .coverage
 htmlcov/
 
-# Logs
+# Logs and DB
 *.log
+*.csv
+*.db
+session_memory.db
+adaptation_log.csv

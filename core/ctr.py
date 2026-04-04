@@ -1,7 +1,7 @@
 import json
 import dataclasses
 from dataclasses import dataclass
-from typing import Literal, Dict, Any, Optional, Literal
+from typing import Literal, Dict, Any, Optional, List
 from pydantic import BaseModel, Field
 
 
@@ -14,7 +14,9 @@ TaskType = Literal[
     "GENERATE_PASSWORD",
     "SCAN_PASSWORD_FIELDS",
     "AUTOFILL_APP",
-    "FIND_RECEIPTS"
+    "FIND_RECEIPTS",
+    "SHELL_PLAN",
+    "SAVED_COMMAND"
 ]
 
 
@@ -119,6 +121,23 @@ class AutofillApp(BaseModel):
 #     pattern: str = Field(..., pattern=r"^[a-zA-Z0-9_-]+$")
 
 
+class ShellCommand(BaseModel):
+    cmd: str
+    explanation: str
+    risk_level: str  # "low", "medium", or "critical"
+    risk_reason: Optional[str] = None
+
+class ShellPlan(BaseModel):
+    task_type: Literal["SHELL_PLAN"] = "SHELL_PLAN"
+    intent_description: str
+    commands: List[ShellCommand]
+    saveable: bool = True
+
+class SavedCommand(BaseModel):
+    task_type: Literal["SAVED_COMMAND"] = "SAVED_COMMAND"
+    command_name: str
+    original_ctr_json: str
+
 def validate_ctr(ctr: CTR) -> None:
     """Validate CTR and convert to Pydantic model for type checking."""
     
@@ -145,5 +164,9 @@ def validate_ctr(ctr: CTR) -> None:
         BulkRename.model_validate(ctr_dict)
     elif ctr.task_type == "FIND_RECEIPTS":
         FindReceipts.model_validate(ctr_dict)
+    elif ctr.task_type == "SHELL_PLAN":
+        ShellPlan.model_validate(ctr_dict)
+    elif ctr.task_type == "SAVED_COMMAND":
+        SavedCommand.model_validate(ctr_dict)
     else:
         raise ValueError(f"Unknown task_type: {ctr.task_type}")

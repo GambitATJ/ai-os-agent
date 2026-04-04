@@ -7,9 +7,36 @@ from .executor import execute
 from .logger import log_ctr
 from .steps import Step
 from cost_estimator import CostEstimator
-
+from features.shell_executor import execute_shell_plan
 
 def run_workflow(ctr: CTR, dry_run: bool = True) -> List[Step]:
+
+    if ctr.task_type == "SHELL_PLAN":
+        log_ctr(ctr, "STARTED")
+        success = execute_shell_plan(ctr, dry_run=dry_run)
+        if success:
+            log_ctr(ctr, "COMPLETED", {"shell_plan": True})
+            # Also save to session_memory
+            from session_manager import save_ctr
+            save_ctr(ctr, "complete", 
+                     ctr.params.get("intent_description", 
+                     "shell plan execution"))
+        else:
+            log_ctr(ctr, "INTERRUPTED", {"shell_plan": True,
+                                          "cancelled": True})
+        return []
+
+    if ctr.task_type == "SAVED_COMMAND":
+        # Retrieve and re-run the stored CTR
+        stored_json = ctr.params.get("original_ctr_json")
+        if stored_json:
+            from core.ctr import CTR as CTRClass
+            original = CTRClass.from_json(stored_json)
+            print(f"[WORKFLOW] Executing saved command: {original.task_type}")
+            return run_workflow(original, dry_run=dry_run)
+        else:
+            print("[WORKFLOW] Error: saved command has no stored CTR.")
+            return []
 
     log_ctr(ctr, "STARTED")
 
@@ -43,19 +70,9 @@ def run_workflow(ctr: CTR, dry_run: bool = True) -> List[Step]:
         if target_directory and not dry_run:
             ce = CostEstimator()
             cost_info = ce.estimate(target_directory, len(steps))
+            # Just print the estimate and proceed (no blocking prompt).
+            # The UI layer handles visibility; the DB logs performance.
             print(ce.display_estimate(cost_info))
-            try:
-                choice = input().strip()
-            except EOFError:
-                choice = "p"
-            if choice.lower().startswith('c'):
-                print("Cancelled.")
-                log_ctr(ctr, "COMPLETED", {"dry_run": dry_run, "cancelled": True})
-                return steps
-            if choice.lower().startswith('o'):
-                cost_info = ce.optimized_estimate(target_directory, len(steps))
-                print(f"Optimized: {ce.display_estimate(cost_info).split('[')[0].strip()}")
-                print("Running in optimized mode.")
 
         start_time = time.time()
         execute(steps, dry_run)

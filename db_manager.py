@@ -86,6 +86,21 @@ class SQLiteManager:
                 timestamp        TEXT    NOT NULL
             )
             """,
+            """
+            CREATE TABLE IF NOT EXISTS user_preferences (
+                key        TEXT PRIMARY KEY,
+                value      TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS command_paraphrases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                command_name TEXT NOT NULL,
+                phrase TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """,
         ]
         cursor = self._cursor()
         for stmt in ddl_statements:
@@ -148,6 +163,32 @@ class SQLiteManager:
         self._conn.commit()
         return cursor.rowcount
 
+    def delete_where(self, table_name: str, column: str, value: str) -> int:
+        """
+        Deletes all rows from table_name where column = value.
+        Returns the number of rows deleted.
+        """
+        conn = self._conn
+        cursor = conn.execute(
+            f"DELETE FROM {table_name} WHERE {column} = ?",
+            (value,)
+        )
+        conn.commit()
+        return cursor.rowcount
+
+    def list_user_commands(self) -> list[dict]:
+        """
+        Returns all rows from user_commands as a list of dicts
+        with keys: id, command_name, created_at.
+        Does not return ctr_json (too long to display).
+        """
+        conn = self._conn
+        cursor = conn.execute(
+            "SELECT id, command_name, created_at FROM user_commands ORDER BY created_at DESC"
+        )
+        rows = cursor.fetchall()
+        return [{"id": r[0], "command_name": r[1], "created_at": r[2]} for r in rows]
+
     def fetch_recent(self, table_name: str, hours: int = 24) -> list[dict]:
         """Return rows from *table_name* whose timestamp column is within the
         last *hours* hours (UTC).
@@ -162,6 +203,25 @@ class SQLiteManager:
         cursor = self._cursor()
         cursor.execute(sql, (cutoff,))
         return [dict(row) for row in cursor.fetchall()]
+
+    def set_preference(self, key: str, value: str) -> None:
+        """Upsert a key-value pair in the *user_preferences* table."""
+        sql = (
+            "INSERT INTO user_preferences (key, value, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+            "updated_at = excluded.updated_at"
+        )
+        cursor = self._cursor()
+        cursor.execute(sql, (key, value, self._now_iso()))
+        self._conn.commit()
+
+    def get_preference(self, key: str, default: str | None = None) -> str | None:
+        """Return the stored value for *key*, or *default* if not found."""
+        sql = "SELECT value FROM user_preferences WHERE key = ?"
+        cursor = self._cursor()
+        cursor.execute(sql, (key,))
+        row = cursor.fetchone()
+        return row["value"] if row else default
 
     def close(self) -> None:
         """Close the underlying database connection."""

@@ -28,6 +28,15 @@ import numpy as np
 # ── Re-enable logging for our own output ─────────────────────────────────────
 logging.disable(logging.NOTSET)
 
+SPINNER_PAUSED = threading.Event()
+
+def pause_spinner():
+    SPINNER_PAUSED.set()
+    sys.stdout.write('\r' + ' ' * 60 + '\r')
+    sys.stdout.flush()
+
+def resume_spinner():
+    SPINNER_PAUSED.clear()
 
 class Spinner:
     """Simple CLI spinner shown while a task is running."""
@@ -42,9 +51,10 @@ class Spinner:
     def _spin(self):
         i = 0
         while not self._stop_event.is_set():
-            frame = self.FRAMES[i % len(self.FRAMES)]
-            sys.stdout.write(f"\r{frame}  {self.message}...")
-            sys.stdout.flush()
+            if not SPINNER_PAUSED.is_set():
+                frame = self.FRAMES[i % len(self.FRAMES)]
+                sys.stdout.write(f"\r{frame}  {self.message}...")
+                sys.stdout.flush()
             time.sleep(0.08)
             i += 1
 
@@ -114,8 +124,10 @@ def interactive_mode():
         try:
             ctr = route(text)
             run_workflow(ctr, dry_run=False)
-        except Exception as e:
+        except ValueError as e:
             print(f"❌ {e}")
+        except Exception as e:
+            print(f"❌ System Error: {e}")
 
 def main():
     parser = argparse.ArgumentParser(description="AI OS Agent CLI")
@@ -175,6 +187,11 @@ def main():
         help="Execute (not dry-run)"
     )
 
+    delete_cmd = subparsers.add_parser("delete", aliases=["delete-command"])
+    delete_cmd.add_argument("command_name", help="Command name here")
+
+    list_cmd = subparsers.add_parser("list", aliases=["list-commands"])
+
     nl = subparsers.add_parser("nl")
     nl.add_argument("text", help="Natural language command")
 
@@ -186,6 +203,8 @@ def main():
         default="<ctrl>+<alt>+v",
         help="Hotkey combination (default: <ctrl>+<alt>+v)"
     )
+
+    subparsers.add_parser("widget", help="Launch desktop overlay widget")
 
     args = parser.parse_args()
     
@@ -209,6 +228,12 @@ def main():
         bulk_rename_action(args.source_dir, args.pattern, args.dry_run)
     elif args.command == "find-receipts":
         find_receipts_action(args.source_dir, args.query, args.export, args.dry_run)
+    elif args.command in ("delete", "delete-command"):
+        from features.command_manager import delete_user_command
+        delete_user_command(args.command_name)
+    elif args.command in ("list", "list-commands"):
+        from features.command_manager import list_user_commands
+        list_user_commands()
     elif args.command == "nl":
         spinner = Spinner("Running")
         spinner.start()
@@ -247,9 +272,12 @@ def main():
         try:
             ctr = route(args.text)
             run_workflow(ctr, dry_run=False)
-        except Exception as e:
+        except ValueError as e:
             spinner.stop()
             print(f"❌ {e}")
+        except Exception as e:
+            spinner.stop()
+            print(f"❌ System Error: {e}")
         else:
             spinner.stop()
     elif args.command == "chat":
@@ -257,8 +285,13 @@ def main():
     elif args.command == "hotkey":
         from hotkey_daemon import run_daemon
         run_daemon(args.key)
+    elif args.command == "widget":
+        from ui.desktop_widget import main as widget_main
+        widget_main()
     else:
-        parser.print_help()
+        # No subcommand: drop into the interactive chat UI.
+        from ui.chat import main as chat_main
+        chat_main()
 
 
 if __name__ == "__main__":

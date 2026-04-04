@@ -9,7 +9,6 @@ class Sandbox:
         self.client = docker.from_env()
     
     def process_receipts(self, source_dir: str) -> Dict[str, Any]:
-        """Process receipts in isolated Docker container."""
         from checkpoint_manager import CheckpointManager
         cm = CheckpointManager()
         affected = [source_dir]

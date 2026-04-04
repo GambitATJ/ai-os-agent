@@ -135,7 +135,7 @@ def classify_intent(text: str) -> Tuple[str, float]:
         intent_1, score_1 = all_scores[0]
         intent_2, score_2 = all_scores[1]
 
-        if (score_1 - score_2) < CONFIDENCE_THRESHOLD:
+        if best_score >= 0.5 and (score_1 - score_2) < CONFIDENCE_THRESHOLD:
             print(
                 f"Ambiguous command. Did you mean "
                 f"(1) {intent_1} or (2) {intent_2}? Enter 1 or 2:"
@@ -418,14 +418,129 @@ def build_ctr(task: str, text: str) -> CTR:
     raise ValueError(f"Unknown task: {task}")
 
 
+def load_saved_commands_into_examples() -> None:
+    """
+    Reads all rows from command_paraphrases table in SQLite.
+    For each unique command_name, collects all phrases and 
+    adds them to INTENT_EXAMPLES under a key formatted as:
+    f"SAVED:{command_name}"
+    
+    This allows the sentence transformer to recognise saved 
+    user commands using their stored paraphrases.
+    
+    Also ensures _INTENT_EMBEDDINGS is reset to None so it 
+    gets rebuilt on next classify_intent call.
+    """
+    global _INTENT_EMBEDDINGS, INTENT_EXAMPLES
+    
+    from db_manager import SQLiteManager
+    db = SQLiteManager()
+    
+    try:
+        rows = db.fetch_all("command_paraphrases")
+        if not rows:
+            return
+        
+        grouped = {}  # command_name -> list of phrases
+        for row in rows:
+            try:
+                name = row["command_name"]
+            except KeyError:
+                name = row[1]
+            try:
+                phrase = row["phrase"]
+            except KeyError:
+                phrase = row[2]
+                
+            if name not in grouped:
+                grouped[name] = []
+            grouped[name].append(phrase)
+        
+        for name, phrases in grouped.items():
+            intent_key = f"SAVED:{name}"
+            INTENT_EXAMPLES[intent_key] = phrases
+            print(f"[NLU] Loaded saved command: '{name}' ({len(phrases)} phrases)")
+            
+        try:
+            prefs = db.fetch_all("user_preferences")
+            if prefs:
+                for row in prefs:
+                    try:
+                        k = row["key"]
+                    except KeyError:
+                        k = row[0]
+                    if k.startswith("disabled_feature_"):
+                        try:
+                            v = row["value"]
+                        except KeyError:
+                            v = row[1]
+                        
+                        feat = v.strip().upper()
+                        if feat in INTENT_EXAMPLES:
+                            del INTENT_EXAMPLES[feat]
+                            print(f"[NLU] Feature disabled by user: {feat}")
+        except Exception:
+            pass
+        
+        _INTENT_EMBEDDINGS = None  # force rebuild
+    except Exception as e:
+        print(f"[NLU] Warning: could not load saved commands: {e}")
+
+try:
+    load_saved_commands_into_examples()
+except Exception:
+    pass
+
 # --------------------------------------------------
 # 5. Public Router
 # --------------------------------------------------
 
 def route(text: str) -> CTR:
-    task, confidence = classify_intent(text)
+    best_task, confidence = classify_intent(text)
 
-    if confidence < 0.25:
+    # Handle saved command retrieval
+    if best_task and best_task.startswith("SAVED:"):
+        command_name = best_task[len("SAVED:"):]
+        from db_manager import SQLiteManager
+        db = SQLiteManager()
+        rows = db.fetch_where("user_commands", "command_name", command_name)
+        if rows:
+            try:
+                stored_ctr_json = rows[0]["ctr_json"]
+            except KeyError:
+                stored_ctr_json = rows[0][2]
+            from core.ctr import CTR
+            retrieved_ctr = CTR.from_json(stored_ctr_json)
+            
+            # Mark as replay so shell_executor skips the approval UI
+            if retrieved_ctr.task_type == "SHELL_PLAN":
+                retrieved_ctr.params["_is_saved_replay"] = True
+                
+            print(f"[NLU] Matched saved command: '{command_name}'")
+            return retrieved_ctr
+        else:
+            print(f"[NLU] Warning: saved command '{command_name}' found in examples but not in database.")
+
+    # LLM fallback when confidence is too low
+    if confidence < 0.5:
+        print(f"[NLU] Confidence {confidence:.2f} below threshold. Escalating to LLM planner...")
+        try:
+            from core.llm_planner import generate_plan
+            from core.ctr import CTR
+            plan_dict = generate_plan(text)
+            shell_ctr = CTR(
+                task_type="SHELL_PLAN",
+                params=plan_dict,
+                version="1.0"
+            )
+            return shell_ctr
+        except RuntimeError as e:
+            # API key not set
+            raise ValueError(f"[NLU] Command not recognised and LLM fallback unavailable: {e}")
+        except Exception as e:
+            raise ValueError(f"[NLU] Command not recognised and LLM planning failed: {e}. Try rephrasing your command.")
+
+    if confidence < 0.25 and not (best_task and best_task.startswith("SAVED:")):
         raise ValueError(f"Low confidence intent detection ({confidence:.2f})")
 
-    return build_ctr(task, text)
+    return build_ctr(best_task, text)
