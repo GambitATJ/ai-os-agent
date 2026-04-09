@@ -70,6 +70,9 @@ class Spinner:
             print(final_msg)
 
 def interactive_mode():
+    from features.profile_manager import get_user_name
+    name = get_user_name()
+    print(f"\n  Hello, {name}. How can I help you today?\n")
     print("🤖 AI-OS Interactive Mode (type 'exit' to quit)\n")
 
     from core.nlu_router import route
@@ -192,6 +195,8 @@ def main():
 
     list_cmd = subparsers.add_parser("list", aliases=["list-commands"])
 
+    setup_profile_cmd = subparsers.add_parser("setup-profile")
+
     nl = subparsers.add_parser("nl")
     nl.add_argument("text", help="Natural language command")
 
@@ -234,6 +239,9 @@ def main():
     elif args.command in ("list", "list-commands"):
         from features.command_manager import list_user_commands
         list_user_commands()
+    elif args.command == "setup-profile":
+        from features.profile_manager import setup_profile
+        setup_profile()
     elif args.command == "nl":
         spinner = Spinner("Running")
         spinner.start()
@@ -271,6 +279,7 @@ def main():
                         return
         try:
             ctr = route(args.text)
+            spinner.stop()
             run_workflow(ctr, dry_run=False)
         except ValueError as e:
             spinner.stop()
@@ -278,8 +287,6 @@ def main():
         except Exception as e:
             spinner.stop()
             print(f"❌ System Error: {e}")
-        else:
-            spinner.stop()
     elif args.command == "chat":
         interactive_mode()
     elif args.command == "hotkey":

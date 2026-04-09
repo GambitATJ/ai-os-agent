@@ -18,6 +18,7 @@ ENV/
 # Secrets / vault
 .aios/
 .env
+credentials.json
 
 # Editor
 .vscode/

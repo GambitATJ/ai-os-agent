@@ -43,7 +43,8 @@ Rules for risk_level:
 
 Use only commands that work on Ubuntu 22.04. Never use sudo.
 All file paths must be within the user home directory.
-If the request requires sudo or kernel access, still include the command but mark it as critical with a clear risk_reason."""
+If the request requires sudo or kernel access, still include the command but mark it as critical with a clear risk_reason.
+For package removal, prefer: apt-get remove -y <package> run via the override mechanism rather than generating sudo directly. Always include -y flag for apt commands to prevent interactive prompts."""
 
 def generate_plan(user_request: str) -> dict:
     """
@@ -64,7 +65,15 @@ def generate_plan(user_request: str) -> dict:
         )
         raw = response.text.strip()
     except Exception as e:
-        raise RuntimeError(f"API call failed: {e}")
+        print(f"[LLM] Main model ({MODEL_NAME}) failed with error: {e}. Switching to fallback model.")
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt,
+            )
+            raw = response.text.strip()
+        except Exception as fallback_e:
+            raise RuntimeError(f"API call to both models failed. Fallback error: {fallback_e}")
     
     # Strip markdown code fences if present
     if raw.startswith("```json"):
@@ -107,10 +116,17 @@ Example format: ["phrase 1", "phrase 2", ..., "phrase 8"]
 The phrases should vary in vocabulary and structure but all mean the same thing."""
 
     try:
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=prompt,
-        )
+        try:
+            response = client.models.generate_content(
+                model=MODEL_NAME,
+                contents=prompt,
+            )
+        except Exception as e:
+            print(f"[LLM] Main model ({MODEL_NAME}) failed for paraphrasing. Switching to fallback.")
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt,
+            )
         raw = response.text.strip()
         
         # Strip markdown fences

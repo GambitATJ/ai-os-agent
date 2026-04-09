@@ -13,6 +13,7 @@ from core.ctr import CTR, validate_ctr
 from core.policy import check_policy
 from core.logger import log_ctr
 from core.nlu_router import get_model
+from core.session_context import update_context
 
 def ocr_image(file_path):
     if file_path.suffix.lower() == ".pdf":
@@ -116,31 +117,38 @@ def process_receipts(source_dir: str, query: str, export_dir: Optional[str] = No
             print(f"\n🚀 Opening best match: {top_path}")
             subprocess.Popen(["xdg-open", top_path])
 
+    if ranked:
+        # Store top result in session context for follow-up commands
+        top_paths = [r["path"] for r in ranked[:5]]
+        update_context(
+            task_type="FIND_RECEIPTS",
+            result_path=ranked[0]["path"],
+            result_paths=top_paths,
+            query=query,
+            description=f"Found receipt matching '{query}'"
+        )
+        print(f"\n  📌  Result stored in context.")
+        print(f"      Say 'mail it to [name]' to send this file.")
+
     return ranked
 
 
 # Update CLI action
 def find_receipts_action(source_dir: str = "", query: str = "", export_dir: Optional[str] = None, dry_run: bool = True):
     ctr = CTR(task_type="FIND_RECEIPTS", params={"source_dir": source_dir, "query": query, "export_dir": export_dir})
-    print(f"[WORKFLOW] CTR: {ctr}")
-    log_ctr(ctr, "STARTED")
+    # NOTE: log_ctr STARTED/COMPLETED are called by run_workflow — do NOT repeat here.
     validate_ctr(ctr)
-    log_ctr(ctr, "VALIDATED")
     if not query:
         query = "receipt"
     affected_paths = [source_dir]
-    if export_dir:  # ✅ Fixed: use export_dir (not export_dir)
+    if export_dir:
         affected_paths.append(export_dir)
     check_policy(ctr, affected_paths)
-    log_ctr(ctr, "POLICY_APPROVED")
-    
+
     if dry_run:
         print("[DRY-RUN] AI document search preview")
-        log_ctr(ctr, "COMPLETED", {"dry_run": True})
     else:
-        # ✅ FIXED: Pass query parameter
         results = process_receipts(source_dir, query, export_dir, False)
-        log_ctr(ctr, "COMPLETED", {"matches": len(results)})
 
 
 # Global instance

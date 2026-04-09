@@ -16,7 +16,11 @@ TaskType = Literal[
     "AUTOFILL_APP",
     "FIND_RECEIPTS",
     "SHELL_PLAN",
-    "SAVED_COMMAND"
+    "SAVED_COMMAND",
+    "EMAIL_TASK",
+    "CALENDAR_TASK",
+    "SEMANTIC_ORGANIZE",
+    "MULTI_TASK"
 ]
 
 
@@ -138,6 +142,34 @@ class SavedCommand(BaseModel):
     command_name: str
     original_ctr_json: str
 
+class EmailTask(BaseModel):
+    task_type: Literal["EMAIL_TASK"] = "EMAIL_TASK"
+    to_name: str
+    subject: str
+    body: str
+    attachment_path: Optional[str] = None
+
+class CalendarTask(BaseModel):
+    task_type: Literal["CALENDAR_TASK"] = "CALENDAR_TASK"
+    action: str  # "create" or "list"
+    title: Optional[str] = None
+    date_str: Optional[str] = None
+    time_str: Optional[str] = "09:00"
+    attendee_name: Optional[str] = None
+    days_ahead: Optional[int] = 1
+
+class SemanticOrganize(BaseModel):
+    task_type: Literal["SEMANTIC_ORGANIZE"] = \
+        "SEMANTIC_ORGANIZE"
+    source_dir: str = "~/Downloads"
+
+
+class MultiTask(BaseModel):
+    task_type: Literal["MULTI_TASK"] = "MULTI_TASK"
+    tasks: List[Dict[str, Any]]
+    description: str = ""
+
+
 def validate_ctr(ctr: CTR) -> None:
     """Validate CTR and convert to Pydantic model for type checking."""
     
@@ -168,5 +200,13 @@ def validate_ctr(ctr: CTR) -> None:
         ShellPlan.model_validate(ctr_dict)
     elif ctr.task_type == "SAVED_COMMAND":
         SavedCommand.model_validate(ctr_dict)
+    elif ctr.task_type == "EMAIL_TASK":
+        EmailTask.model_validate(ctr_dict)
+    elif ctr.task_type == "CALENDAR_TASK":
+        CalendarTask.model_validate(ctr_dict)
+    elif ctr.task_type == "SEMANTIC_ORGANIZE":
+        SemanticOrganize.model_validate(ctr_dict)
+    elif ctr.task_type == "MULTI_TASK":
+        MultiTask.model_validate(ctr_dict)
     else:
         raise ValueError(f"Unknown task_type: {ctr.task_type}")

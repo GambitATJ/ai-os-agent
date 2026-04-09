@@ -101,6 +101,21 @@ class SQLiteManager:
                 created_at TEXT NOT NULL
             )
             """,
+            """
+            CREATE TABLE IF NOT EXISTS user_profile (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS contacts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """,
         ]
         cursor = self._cursor()
         for stmt in ddl_statements:
@@ -222,6 +237,36 @@ class SQLiteManager:
         cursor.execute(sql, (key,))
         row = cursor.fetchone()
         return row["value"] if row else default
+
+    def get_profile(self, key: str) -> str or None:
+        conn = self._conn
+        cursor = conn.execute(
+            "SELECT value FROM user_profile WHERE key = ?",
+            (key,)
+        )
+        row = cursor.fetchone()
+        return row[0] if row else None
+
+    def set_profile(self, key: str, value: str) -> None:
+        conn = self._conn
+        conn.execute(
+            "INSERT INTO user_profile (key, value, updated_at) "
+            "VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET "
+            "value=excluded.value, updated_at=excluded.updated_at",
+            (key, value, __import__('datetime')
+             .datetime.utcnow().isoformat())
+        )
+        conn.commit()
+
+    def get_contact(self, name: str) -> str or None:
+        conn = self._conn
+        cursor = conn.execute(
+            "SELECT email FROM contacts WHERE "
+            "LOWER(name) LIKE LOWER(?)",
+            (f"%{name}%",)
+        )
+        row = cursor.fetchone()
+        return row[0] if row else None
 
     def close(self) -> None:
         """Close the underlying database connection."""

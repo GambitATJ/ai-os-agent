@@ -2,6 +2,7 @@ import re
 import os
 import csv
 import sys
+import json
 from datetime import datetime
 from typing import Dict, Tuple, List
 import numpy as np
@@ -10,6 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from db_manager import SQLiteManager
 from sentence_transformers import SentenceTransformer
 from core.ctr import CTR
+from core.session_context import get_context
 
 # --------------------------------------------------
 # Ambiguity threshold: if the top-2 intent scores differ by less
@@ -92,6 +94,49 @@ INTENT_EXAMPLES = {
     "SCAN_PASSWORD_FIELDS": [
         "scan for password fields",
         "check folder for passwords"
+    ],
+    "EMAIL_TASK": [
+        "email the receipt to john",
+        "send the invoice to my boss",
+        "mail the pdf to sarah",
+        "send an email to mark with the attachment",
+        "email the ipad receipt to abhijit",
+        "forward the receipt to accounts",
+        "send the document to my manager",
+        "mail the report to the team",
+        "email my friend the file",
+        "send this to mark by email",
+        "mail it to sarah",
+        "forward this document to john by email",
+    ],
+    "CALENDAR_TASK": [
+        "add a meeting tomorrow at 3pm",
+        "schedule a call with john on friday",
+        "create a calendar event for monday",
+        "what do I have today",
+        "show my schedule for tomorrow",
+        "book a meeting at 2pm",
+        "add project review to my calendar",
+        "what meetings do I have this week",
+        "schedule standup for 9am tomorrow",
+        "remind me about the demo on friday",
+        "delete the standup meeting",
+        "cancel my 3pm meeting",
+        "remove the project review event",
+        "delete my meeting tomorrow",
+        "cancel the friday call",
+    ],
+    "SEMANTIC_ORGANIZE": [
+        "organise my files by content",
+        "sort my downloads folder by topic",
+        "cluster my documents semantically",
+        "group similar files together",
+        "reorganise my folder by meaning",
+        "sort files by what they are about",
+        "intelligently organise my downloads",
+        "group my files by content type",
+        "smart sort my documents folder",
+        "arrange files by similarity",
     ]
 }
 
@@ -131,19 +176,42 @@ def classify_intent(text: str) -> Tuple[str, float]:
     # ------------------------------------------------------------------
     # Ambiguity resolution: if the top-2 scores are too close, ask user.
     # ------------------------------------------------------------------
+
+    # If text contains an explicit file path, suppress ambiguity —
+    # it is almost certainly a file operation, not an email.
+    has_explicit_path = bool(re.search(r'[~\/][\w\/\.\-]+', text))
+    if has_explicit_path and best_task in [
+        "FIND_RECEIPTS", "ORGANIZE_DOWNLOADS",
+        "BULK_RENAME", "SCAN_PASSWORD_FIELDS",
+        "SEMANTIC_ORGANIZE"
+    ]:
+        return best_task, best_score
+
     if len(all_scores) >= 2:
         intent_1, score_1 = all_scores[0]
         intent_2, score_2 = all_scores[1]
 
         if best_score >= 0.5 and (score_1 - score_2) < CONFIDENCE_THRESHOLD:
             print(
-                f"Ambiguous command. Did you mean "
+                f"\nAmbiguous command. Did you mean "
                 f"(1) {intent_1} or (2) {intent_2}? Enter 1 or 2:"
             )
+            
+            try:
+                from cli.main import pause_spinner, resume_spinner
+                pause_spinner()
+            except ImportError:
+                resume_spinner = lambda: None
+                
             try:
                 choice = input().strip()
             except EOFError:
                 choice = "1"  # non-interactive fallback
+                
+            try:
+                resume_spinner()
+            except Exception:
+                pass
 
             correct_intent = intent_2 if choice == "2" else intent_1
             best_task  = correct_intent
@@ -415,6 +483,130 @@ def build_ctr(task: str, text: str) -> CTR:
             params={"scope": scope}
         )
 
+    elif task == "SEMANTIC_ORGANIZE":
+        paths = extract_paths(text)
+        source = paths[0] if paths else "~/Downloads"
+        return CTR("SEMANTIC_ORGANIZE",
+                   {"source_dir": source})
+
+    elif task == "CALENDAR_TASK":
+        text_lower = text.lower()
+        
+        # Determine action — check delete first, then list, else create
+        delete_words = ["delete", "cancel", "remove", "unschedule"]
+        list_words = ["what", "show", "list", "check",
+                      "do i have", "schedule"]
+        if any(w in text_lower for w in delete_words):
+            action = "delete"
+        elif any(w in text_lower for w in list_words):
+            action = "list"
+        else:
+            action = "create"
+        
+        # Extract time
+        time_match = re.search(
+            r'(\d{1,2}(?::\d{2})?\s*(?:am|pm)|\d{2}:\d{2})',
+            text, re.IGNORECASE)
+        time_str = time_match.group(1) if time_match else "09:00"
+        
+        # Extract date
+        date_words = ["tomorrow", "today", "monday", "tuesday",
+                      "wednesday", "thursday", "friday", 
+                      "saturday", "sunday"]
+        date_str = "tomorrow"
+        for w in date_words:
+            if w in text_lower:
+                date_str = w
+                break
+        
+        # Extract title — remove noise words
+        title = text
+        for noise in ["add", "schedule", "create", "book",
+                      "meeting", "calendar", "event", "at",
+                      time_str, date_str, "a", "an", "the",
+                      "my", "for", "on", "tomorrow", "today"]:
+            title = re.sub(
+                r'\b' + re.escape(noise) + r'\b', 
+                '', title, flags=re.IGNORECASE
+            )
+        title = " ".join(title.split()).strip()
+        if not title:
+            title = "Meeting"
+        
+        # Extract attendee
+        attendee_match = re.search(
+            r'\bwith\s+([a-zA-Z]+)', text, re.IGNORECASE)
+        attendee_name = (attendee_match.group(1) 
+                         if attendee_match else None)
+        
+        # Days ahead for list
+        days_map = {"today": 1, "tomorrow": 2, 
+                    "week": 7, "this week": 7}
+        days_ahead = 1
+        for k, v in days_map.items():
+            if k in text_lower:
+                days_ahead = v
+                break
+        
+        return CTR("CALENDAR_TASK", {
+            "action": action,
+            "title": title,
+            "date_str": date_str,
+            "time_str": time_str,
+            "attendee_name": attendee_name,
+            "days_ahead": days_ahead
+        })
+
+    elif task == "EMAIL_TASK":
+        # Extract recipient name — word after "to"
+        to_match = re.search(
+            r'\bto\s+([a-zA-Z]+)', text, re.IGNORECASE)
+        to_name = to_match.group(1) if to_match else "unknown"
+        
+        # Extract explicit file path if provided
+        # After context resolution, explicit_paths may contain
+        # the resolved path from context
+        explicit_paths = extract_paths(text)
+        explicit_attachment = (explicit_paths[0]
+                               if explicit_paths else None)
+
+        # Detect receipt/document keywords suggesting
+        # a search is needed
+        search_keywords = [
+            "receipt", "invoice", "document", "pdf",
+            "file", "attachment", "report"
+        ]
+        # Only search if no path was resolved from context
+        # AND search keywords are present
+        needs_search = (
+            any(kw in text.lower() for kw in search_keywords)
+            and not explicit_attachment
+        )
+        
+        # Extract search query if search is needed
+        # Remove common email words to get the search term
+        query = text.lower()
+        for noise in ["mail", "email", "send", "to", 
+                      to_name.lower(), "the", "my", "a",
+                      "forward", "attach", "with", "and",
+                      "receipt", "invoice", "document"]:
+            query = query.replace(noise, " ")
+        query_words = [w for w in query.split() if len(w) > 2]
+        search_query = " ".join(query_words).strip()
+        if not search_query:
+            search_query = "receipt"
+        
+        return CTR("EMAIL_TASK", {
+            "to_name": to_name,
+            "subject": "Document from AI-OS",
+            "body": (f"Please find the attached document "
+                     f"as requested."),
+            "attachment_path": explicit_attachment,
+            "needs_search": needs_search,
+            "search_query": search_query,
+            "search_dir": "~/Downloads"
+        })
+
     raise ValueError(f"Unknown task: {task}")
 
 
@@ -492,10 +684,129 @@ except Exception:
     pass
 
 # --------------------------------------------------
-# 5. Public Router
+# 5. Context Resolution
 # --------------------------------------------------
 
+def resolve_context_references(text: str) -> str:
+    """
+    Replaces vague references in user text with concrete
+    values from session context before classification.
+
+    Examples:
+      "mail it to mark" + context(last_result_path=
+        "~/Downloads/receipt.pdf")
+      → "mail ~/Downloads/receipt.pdf to mark"
+
+      "send that file to sarah" + same context
+      → "send ~/Downloads/receipt.pdf to sarah"
+    """
+    ctx = get_context()
+
+    if not ctx.has_recent_file():
+        return text
+
+    primary_file = ctx.get_primary_file()
+
+    # Pronouns and vague references to replace
+    # Order matters — replace longer phrases first
+    reference_patterns = [
+        "that file",
+        "the file",
+        "that document",
+        "the document",
+        "the receipt",
+        "that receipt",
+        "the same file",
+        "the result",
+        "that",
+        "it",
+    ]
+
+    text_lower = text.lower()
+
+    # Only resolve if the command looks like it wants
+    # to use a previous result (send/mail/move/copy/open)
+    action_words = ["mail", "send", "email", "forward",
+                    "move", "copy", "open", "attach",
+                    "share", "upload"]
+
+    has_action = any(w in text_lower for w in action_words)
+    if not has_action:
+        return text
+
+    # Check if text already has an explicit path
+    has_explicit_path = bool(re.search(
+        r'[~\/][\w\/\.\-]+', text))
+    if has_explicit_path:
+        return text
+
+    # Resolve references
+    resolved = text
+    for pattern in reference_patterns:
+        # Case-insensitive replacement
+        regex = re.compile(
+            r'\b' + re.escape(pattern) + r'\b',
+            re.IGNORECASE
+        )
+        if regex.search(resolved):
+            resolved = regex.sub(primary_file, resolved,
+                                  count=1)
+            print(f"  [CONTEXT] Resolved '{pattern}' → "
+                  f"'{primary_file}'")
+            break
+
+    return resolved
+
+
+# --------------------------------------------------
+# 6. Public Router
+# --------------------------------------------------
+
+MULTI_TASK_PATTERNS = [
+    (r'find.*and.*(?:mail|send|email)',
+     ["FIND_RECEIPTS", "EMAIL_TASK"]),
+    (r'search.*and.*(?:mail|send|email)',
+     ["FIND_RECEIPTS", "EMAIL_TASK"]),
+    (r'(?:mail|send|email).*receipt.*to',
+     ["FIND_RECEIPTS", "EMAIL_TASK"]),
+]
+
+
 def route(text: str) -> CTR:
+    original_text = text  # save before any resolution
+    # Resolve any context references before classification
+    text = resolve_context_references(text)
+
+    # Detect explicit multi-task commands — run on ORIGINAL text
+    # so a resolved path (e.g. ".../receipt.pdf") doesn't falsely
+    # trigger the ".*receipt.*" pattern.
+    for pattern, task_sequence in MULTI_TASK_PATTERNS:
+        if re.search(pattern, original_text.lower()):
+            print(f"\n  [NLU] Multi-step command detected.")
+            print(f"  Will execute: "
+                  f"{' → '.join(task_sequence)}\n")
+
+            # Build CTRs for each task in sequence
+            ctrs = []
+            for task in task_sequence:
+                try:
+                    ctr = build_ctr(task, text)
+                    ctrs.append(ctr)
+                except Exception:
+                    pass
+
+            if len(ctrs) == len(task_sequence):
+                # Return a special MULTI_TASK CTR
+                return CTR(
+                    task_type="MULTI_TASK",
+                    params={
+                        "tasks": [json.loads(c.to_json())
+                                  for c in ctrs],
+                        "description": text
+                    }
+                )
+            break
+
     best_task, confidence = classify_intent(text)
 
     # Handle saved command retrieval
@@ -509,13 +820,13 @@ def route(text: str) -> CTR:
                 stored_ctr_json = rows[0]["ctr_json"]
             except KeyError:
                 stored_ctr_json = rows[0][2]
-            from core.ctr import CTR
+            # CTR is already imported at module level
             retrieved_ctr = CTR.from_json(stored_ctr_json)
-            
+
             # Mark as replay so shell_executor skips the approval UI
             if retrieved_ctr.task_type == "SHELL_PLAN":
                 retrieved_ctr.params["_is_saved_replay"] = True
-                
+
             print(f"[NLU] Matched saved command: '{command_name}'")
             return retrieved_ctr
         else:
@@ -526,8 +837,9 @@ def route(text: str) -> CTR:
         print(f"[NLU] Confidence {confidence:.2f} below threshold. Escalating to LLM planner...")
         try:
             from core.llm_planner import generate_plan
-            from core.ctr import CTR
+            # CTR is already imported at module level
             plan_dict = generate_plan(text)
+            plan_dict["_from_llm"] = True
             shell_ctr = CTR(
                 task_type="SHELL_PLAN",
                 params=plan_dict,

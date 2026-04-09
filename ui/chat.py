@@ -94,8 +94,15 @@ def _rule(title: str = "") -> None:
 
 
 def _print_header() -> None:
+    try:
+        from features.profile_manager import get_user_name
+        first_name = get_user_name()
+    except Exception:
+        first_name = "there"
+
     if not con:
-        print("=== AI OS Agent ===")
+        print(f"=== AI OS Agent ===")
+        print(f"Welcome, {first_name}! What can I help you with today?")
         return
     con.print()
     con.print(Panel(
@@ -108,6 +115,11 @@ def _print_header() -> None:
         padding=(0, 2),
     ))
     _print_shortcuts()
+    con.print()
+    con.print(
+        f"  [bold white]Welcome back, {first_name}![/]  "
+        f"[{_C['dim']}]What can I help you with today?[/]"
+    )
     con.print()
 
 
@@ -331,13 +343,75 @@ def _handle_delete_feature(text: str) -> None:
         _p(f"  [{_C['dim']}]Cancelled.[/]")
 
 
+def _handle_list_commands() -> None:
+    from db_manager import SQLiteManager
+    import json
+    db = SQLiteManager()
+    rows = db.fetch_all("user_commands")
+    db.close()
+    if not rows:
+        _p(f"  [{_C['dim']}]No saved commands found.[/]")
+        return
+        
+    _p(f"  [{_C['cyan']}]Saved Commands ({len(rows)}):[/]")
+    for i, row in enumerate(rows, 1):
+        name = row["command_name"]
+        try:
+            ctr_json = json.loads(row["ctr_json"])
+            desc = ctr_json.get("params", {}).get("intent_description", "")
+        except:
+            desc = "Unknown"
+        _p(f"    {i}. [{_C['accent']}]{name}[/] - [{_C['dim']}]{desc}[/]")
+
+
+def _handle_delete_command(text: str) -> None:
+    lo = text.lower()
+    command = text
+    for kw in _DELETE_COMMAND_KEYWORDS:
+        if lo.startswith(kw):
+            command = text[len(kw):].strip()
+            break
+            
+    if not command:
+        _p(f"  [{_C['red']}]✗ Please specify a saved command to delete.[/]")
+        return
+        
+    cmd_name = command.lower()
+    from db_manager import SQLiteManager
+    db = SQLiteManager()
+    rows = db.fetch_where("user_commands", "command_name", cmd_name)
+    if not rows:
+        _p(f"  [{_C['red']}]✗ Saved command '{cmd_name}' not found.[/]")
+        db.close()
+        return
+        
+    db.delete("user_commands", rows[0]["id"])
+    
+    # Also clean up paraphrases
+    paraphrase_rows = db.fetch_where("command_paraphrases", "command_name", cmd_name)
+    for p_row in paraphrase_rows:
+        db.delete("command_paraphrases", p_row["id"])
+    db.close()
+    
+    # Remove from dynamic NLU routing list so it stops matching immediately
+    import core.nlu_router
+    intent_key = f"SAVED:{cmd_name}"
+    if intent_key in core.nlu_router.INTENT_EXAMPLES:
+        del core.nlu_router.INTENT_EXAMPLES[intent_key]
+        core.nlu_router._INTENT_EMBEDDINGS = None
+        
+    _p(f"  [{_C['green']}]✓ Saved command '{cmd_name}' successfully deleted.[/]")
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Main REPL loop
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_RESUME_KEYWORDS = ("resume", "continue", "what was i doing", "what did i do", "yesterday")
-_UNDO_KEYWORDS   = ("undo", "revert last", "roll back", "undo last", "undo that")
+_RESUME_KEYWORDS         = ("resume", "continue", "what was i doing", "what did i do", "yesterday")
+_UNDO_KEYWORDS           = ("undo", "revert last", "roll back", "undo last", "undo that")
 _DELETE_FEATURE_KEYWORDS = ("delete feature", "remove feature", "disable feature")
+_DELETE_COMMAND_KEYWORDS = ("delete command", "remove command", "delete saved command")
+_HISTORY_KEYWORDS        = ("last", "show my last", "show last", "recent tasks",
+                             "task history", "what have i done", "show history")
 
 
 def run(first_command: Optional[str] = None) -> None:
@@ -383,6 +457,22 @@ def run(first_command: Optional[str] = None) -> None:
             _rule("session history")
             _print_history_table()
             continue
+            
+        if text.lower() in ("list commands", "saved commands", "show saved commands", "list saved commands"):
+            _rule("saved commands")
+            _handle_list_commands()
+            continue
+
+        # Persistent session history report
+        lo_text = text.lower()
+        if any(kw in lo_text for kw in _HISTORY_KEYWORDS):
+            _rule("task history")
+            import re as _re
+            n_match = _re.search(r'(\d+)', lo_text)
+            n = int(n_match.group(1)) if n_match else 10
+            from session_manager import get_last_n_tasks
+            _p(get_last_n_tasks(n))
+            continue
 
         if text.lower().startswith("help"):
             _print_shortcuts()
@@ -416,6 +506,12 @@ def _resolve_and_print(text: str) -> None:
         _print_thinking()
         _clear_line()
         _handle_delete_feature(text)
+        return
+        
+    if any(lo.startswith(kw) for kw in _DELETE_COMMAND_KEYWORDS):
+        _print_thinking()
+        _clear_line()
+        _handle_delete_command(text)
         return
 
     # ── NLU dispatch ───────────────────────────────────────────────────────

@@ -101,15 +101,24 @@ def check_shell_plan(plan_dict: dict) -> tuple[list, list, list]:
         if is_hard_blocked:
             continue
             
-        # Block find -delete or find -exec rm outside home
-        if re.search(
-            r'find\s+(?!/home|~)[/\w]*.*(-delete|-exec\s+rm)', 
-            cmd["cmd"]
-        ):
+        # Auto-escalate find -delete anywhere (even in home)
+        # if it could match many files
+        if re.search(r'find\s+.*-delete', cmd["cmd"]):
+            cmd["risk_level"] = "critical"
             cmd["risk_reason"] = (
-                "BLOCKED: find with -delete or -exec rm "
-                "operating outside home directory. "
-                "This would permanently delete system files."
+                "BLOCKED: find -delete will permanently remove "
+                "files and cannot be undone. Even within your "
+                "home directory this is irreversible."
+            )
+            blocked.append(cmd)
+            continue
+
+        # Block rm with wildcards or recursive flags on broad paths
+        if re.search(r'\brm\b\s+(-rf?|-fr?)\s+[~/]', cmd["cmd"]):
+            cmd["risk_level"] = "critical"  
+            cmd["risk_reason"] = (
+                "BLOCKED: recursive deletion. "
+                "This permanently removes entire directory trees."
             )
             blocked.append(cmd)
             continue
@@ -162,3 +171,71 @@ def check_shell_plan(plan_dict: dict) -> tuple[list, list, list]:
             print(f"     ✓  {a['cmd']}")
             
     return approved, needs_confirmation, blocked
+
+def attempt_override(blocked_commands: list) -> list:
+    """
+    Presents blocked commands to the user and offers a 
+    password-based override for commands they understand 
+    and accept responsibility for.
+    
+    Returns a list of commands the user chose to override.
+    Only validates that the password is correct — does not
+    grant sudo, just confirms the user is aware of the risk.
+    """
+    import subprocess, getpass
+    
+    if not blocked_commands:
+        return [], ""
+    
+    print("\n" + "─"*50)
+    print("  🔒  BLOCKED COMMANDS — EXPERT OVERRIDE")
+    print("─"*50)
+    print("  The following commands were blocked for safety.")
+    print("  If you understand the risks and wish to proceed,")
+    print("  you may override by entering your system password.")
+    print("  This action will be logged.\n")
+    
+    for cmd in blocked_commands:
+        print(f"  Command: {cmd['cmd']}")
+        print(f"  Risk: {cmd['risk_reason']}\n")
+    
+    print("  Override these blocked commands? (yes/no): ",
+          end='', flush=True)
+    choice = input().strip().lower()
+    
+    if choice != "yes":
+        print("  Override declined. Blocked commands skipped.")
+        return [], ""
+    
+    # Validate system password
+    print("  Enter your system password to confirm: ",
+          end='', flush=True)
+    try:
+        password = getpass.getpass(prompt='')
+    except Exception:
+        print("\n  Password entry failed.")
+        return [], ""
+    
+    # Validate password using sudo -S -v
+    result = subprocess.run(
+        ["sudo", "-S", "-v"],
+        input=password + "\n",
+        capture_output=True,
+        text=True
+    )
+    
+    if result.returncode != 0:
+        print("\n  ✗  Incorrect password. Override denied.")
+        return [], ""
+    
+    print("\n  ✓  Password accepted.")
+    print("  ⚠  EXPERT OVERRIDE ACTIVE — proceeding with "
+          "blocked commands.")
+    print("  These actions are logged and irreversible.\n")
+    
+    # Return commands with sudo prefix removed if present
+    # (since password was already validated above)
+    overridden = []
+    for cmd in blocked_commands:
+        overridden.append(cmd)
+    return overridden, password

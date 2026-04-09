@@ -116,6 +116,67 @@ def get_recent_summary(hours: int = 24) -> str:
 
 
 # ---------------------------------------------------------------------------
+# get_last_n_tasks
+# ---------------------------------------------------------------------------
+
+def get_last_n_tasks(n: int = 10) -> str:
+    """Return a formatted numbered report of the last N tasks from session_memory.
+
+    Each entry shows: index, task type, local timestamp, and the
+    natural-language summary.
+
+    Args:
+        n: Maximum number of tasks to return (default 10).
+
+    Returns:
+        A human-readable multi-line string.
+    """
+    db = SQLiteManager()
+    # fetch all and sort descending — fetch_recent requires hours, so use all rows
+    try:
+        rows = db.fetch_all("session_memory")
+    except Exception:
+        rows = []
+    db.close()
+
+    if not rows:
+        return "  No tasks recorded yet."
+
+    # Sort by timestamp descending, take top N
+    rows.sort(key=lambda r: r.get("timestamp", ""), reverse=True)
+    rows = rows[:n]
+
+    lines = [f"\n  📋  Last {len(rows)} task(s):\n"]
+    for i, row in enumerate(rows, 1):
+        try:
+            data = json.loads(row.get("ctr_json", "{}"))
+            task_type = data.get("task_type", "UNKNOWN")
+        except Exception:
+            task_type = "UNKNOWN"
+
+        ts_raw = row.get("timestamp", "")
+        try:
+            from datetime import timezone, timedelta
+            dt_utc = datetime.fromisoformat(ts_raw)
+            # Convert UTC → IST (UTC+5:30)
+            ist = dt_utc + timedelta(hours=5, minutes=30)
+            ts_label = ist.strftime("%a %d %b · %I:%M %p")
+        except Exception:
+            ts_label = ts_raw[:16]
+
+        status = row.get("execution_status", "?")
+        icon = {"complete": "✓", "interrupted": "⟳", "failed": "✗"}.get(status, "·")
+        summary = row.get("natural_language_summary", "—")
+        task_label = task_type.replace("_", " ").title()
+
+        lines.append(f"  {i:2d}.  {icon}  {task_label}")
+        lines.append(f"       {ts_label}")
+        lines.append(f"       {summary}\n")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # handle_resume_command
 # ---------------------------------------------------------------------------
 
